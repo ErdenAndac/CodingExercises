@@ -1,4 +1,3 @@
-
 cmake_minimum_required(VERSION 3.11)
 project(CodingExercises)
 
@@ -49,6 +48,11 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED YES)
 set(CMAKE_CXX_EXTENSIONS NO)
 
+# Add math defines for Windows
+if(WIN32)
+    add_definitions(-D_USE_MATH_DEFINES)
+endif()
+
 set(MSVC_COMPILER_FLAGS
     $<$<COMPILE_LANGUAGE:CXX>:/MP> # Use as many cores as available for
                                    # compilation.
@@ -98,13 +102,27 @@ endif()
 
 file(WRITE "${PROJECT_BINARY_DIR}/.gitignore" "*")
 
-
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 message(STATUS "CMake module path: ${CMAKE_MODULE_PATH}")
 
-
 add_subdirectory(thirdparty)
 
+# Blade Element Theory Project
+set(BET_SOURCES
+    src/main.cpp
+    src/constants.hpp
+    src/bladeelement.hpp
+    src/blade.hpp
+    src/rotor.hpp
+    src/vtksettings.hpp
+)
+
+add_executable(blade_element_theory ${BET_SOURCES})
+target_compile_options(blade_element_theory PRIVATE ${COMPILER_FLAGS})
+target_link_libraries(blade_element_theory PRIVATE Eigen3::Eigen MatplotlibCpp::Matplotlib)
+target_include_directories(blade_element_theory PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+# Other executables
 add_executable(RK2 src/RK2.cpp)
 target_compile_options(RK2 PRIVATE ${COMPILER_FLAGS}) 
 target_link_libraries(RK2 PRIVATE Eigen3::Eigen MatplotlibCpp::Matplotlib)
@@ -120,8 +138,4 @@ target_link_libraries(denemeBET PRIVATE Eigen3::Eigen MatplotlibCpp::Matplotlib)
 add_executable(denemeBET2 src/denemeBET2.cpp)
 target_compile_options(denemeBET2 PRIVATE ${COMPILER_FLAGS}) 
 target_link_libraries(denemeBET2 PRIVATE Eigen3::Eigen MatplotlibCpp::Matplotlib)
-
-add_executable(denemeBET3 src/denemeBET3.cpp)
-target_compile_options(denemeBET3 PRIVATE ${COMPILER_FLAGS}) 
-target_link_libraries(denemeBET3 PRIVATE Eigen3::Eigen MatplotlibCpp::Matplotlib)
 

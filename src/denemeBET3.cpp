@@ -102,7 +102,7 @@ struct Rotor
         return positions;
     }
     // Calculate thrust at each blade element
-    std::vector<double> calculateCirculation(double V_c) const
+    std::vector<double> calculateThrust(double V_c) const
     {
         std::vector<double> thrustValues;
         for (const auto &blade : blades)
@@ -201,12 +201,13 @@ int main()
     Rotor myRotor(numBlades, tipRadius, rootRadius, numElements, chord, twistRate, rpm, MTOW);
 
     /// Calculate thrust at each blade element
-    std::vector<double> circulationValues = myRotor.calculateCirculation(verticalVelocity);
-    // Print thrust values
-    std::cout << "Circulation values at each blade element:\n";
-    for (size_t i = 0; i < circulationValues.size(); ++i)
+    std::vector<double> thrustValues = myRotor.calculateThrust(verticalVelocity);
+
+    // Print values
+    std::cout << "Thrust values at each blade element:\n";
+    for (size_t i = 0; i < thrustValues.size(); ++i)
     {
-        std::cout << "Blade Element " << i + 1 << ": " << circulationValues[i] << " \n";
+        std::cout << "Blade Element " << i + 1 << ": " << thrustValues[i] << " \n";
     }
 
     // Simulate and save VTK files at different time steps
@@ -218,5 +219,3 @@ int main()
 
     return 0;
 }
-
-
