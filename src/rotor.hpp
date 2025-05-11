@@ -1,8 +1,11 @@
 #pragma once
 #include "blade.hpp"
+#include "constants.hpp"
 #include <vector>
 #include <cmath>
 #include <tuple>
+#include <array>
+#include <iostream>
 
 namespace BET {
     struct Rotor
@@ -15,10 +18,10 @@ namespace BET {
         double solidity;           // [-] solidity
         double thrust;             // [lb] @ hover = MTOW
         double CT_mt;              // [-] thrust coefficient (momentum theory)
-        double v_i;                // [ft/s] induced velocity (momentum theory)
+        double v_i;                // [ft/s] induced velocity (momentum theory)        
 
         // Create a rotor with identical blades
-        Rotor(int nBlades, double tipRadius, double rootRadius, int numElements, double chord, double twistRateInput, double rpm, double MTOW)
+        Rotor(int nBlades, double tipRadius, double rootRadius, int numElements, double chord, double twistRate, double rpm, double MTOW)
             : numBlades(nBlades),
               angularVelocity(rpm * 2.0 * M_PI / 60.0),
               discArea(M_PI * tipRadius * tipRadius),
@@ -26,65 +29,124 @@ namespace BET {
               solidity(bladeArea / discArea),
               thrust(MTOW),
               CT_mt(thrust / (rhoAir * discArea * angularVelocity * angularVelocity * tipRadius * tipRadius)),
-              v_i(sqrt(thrust / (2.0 * rhoAir * discArea)))
+              v_i(sqrt(thrust / (2.0 * rhoAir * discArea)))              
         {
             double angleSpacing = 2.0 * M_PI / numBlades;
             for (int i = 0; i < numBlades; ++i)
             {
-                blades.emplace_back(tipRadius, rootRadius, numElements, chord, twistRateInput, i * angleSpacing);
+                double initialAngle = 90.0 * M_PI / 180.0 + i * angleSpacing;
+                blades.emplace_back(tipRadius, rootRadius, numElements, chord, twistRate, initialAngle);
             }
         }
 
-        // Get blade element positions for a given time step
-        std::vector<std::tuple<double, double, double>> getBladeElementPositions(double time) const
-        {
-            std::vector<std::tuple<double, double, double>> positions;
-            for (const auto &blade : blades)
-            {
-                double theta = fmod(blade.initialAngle + angularVelocity * time, 2.0 * M_PI);
-                for (const auto &element : blade.elements)
-                {
-                    double x = element.radius * cos(theta);
-                    double y = element.radius * sin(theta);
-                    double z = 0.0;
-                    positions.emplace_back(x, y, z);
-                }
-            }
-            return positions;
+        // Transformation matrix for rotation around z-axis
+        std::array<std::array<double, 3>, 3> getT1(double psi) const {
+            return {{
+                {cos(psi), sin(psi), 0},
+                {-sin(psi), cos(psi), 0},
+                {0, 0, 1}
+            }};
         }
 
-        // Calculate thrust at each blade element
-        std::vector<double> calculateThrust(double V_c) const
-        {
-            std::vector<double> thrustValues;
-            for (const auto &blade : blades)
-            {
-                for (const auto &element : blade.elements)
-                {
-                    // Velocity components
-                    // Use momentum theory to calculate induced velocity
-                    double U_P = V_c + v_i;                              // [ft/s] out-of-plane velocity component
-                    double U_T = angularVelocity * element.radius;       // [ft/s] in-plane velocity component
-                    double phirad = atan(U_P / U_T);                     // [rad] inflow angle
-                    double phideg = phirad * 180.0 / M_PI;               // [deg] inflow angle
-                    double lambda = phirad * (element.radius / blade.R); // [rad] inflow ratio
-                    double lambdadeg = lambda * 180.0 / M_PI;            // [deg] inflow ratio
-                    double pitchAngle;
-                    if (blade.twistRate == 0.0)
-                    {
-                        pitchAngle = (6.0 * CT_mt) / (solidity * blade.CL_alpha) + (3.0 / 2.0) * sqrt(CT_mt / 2.0);
-                    }
-                    else
-                    {
-                        pitchAngle = ((6.0 * CT_mt) / (solidity * blade.CL_alpha)) - (3.0 * blade.twistRate / 4.0) + (3.0 * lambdadeg * 2.0);
-                    }
-                    double theta = pitchAngle;
-                    double CL = blade.CL_alpha * (theta - phideg);
-                    double boundCirc = 0.5 * CL * angularVelocity * element.radius * element.chord;
-                    thrustValues.emplace_back(boundCirc);
+        // Transformation matrix for rotation around y-axis
+        std::array<std::array<double, 3>, 3> getT2(double theta) const {
+            return {{
+                {cos(theta), 0, -sin(theta)},
+                {0, 1, 0},
+                {sin(theta), 0, cos(theta)}
+            }};
+        }
+
+        // Transformation matrix for rotation around x-axis
+        std::array<std::array<double, 3>, 3> getT3(double beta) const {
+            return {{
+                {1, 0, 0},
+                {0, cos(beta), sin(beta)},
+                {0, -sin(beta), cos(beta)}
+            }};
+        }
+
+        // Matrix multiplication helper
+        std::array<double, 3> matrixMultiply(const std::array<std::array<double, 3>, 3>& mat, const std::array<double, 3>& vec) const {
+            std::array<double, 3> result;
+            for (int i = 0; i < 3; ++i) {
+                result[i] = 0;
+                for (int j = 0; j < 3; ++j) {
+                    result[i] += mat[i][j] * vec[j];
                 }
             }
-            return thrustValues;
+            return result;
         }
+
+        // Get blade element positions and velocities for a given time step
+        std::vector<std::tuple<double, double, double, double, double, double, double, double, double>> getBladeElementStates(double time) const {
+            std::vector<std::tuple<double, double, double, double, double, double, double, double, double>> states;
+            
+            for (const auto& blade : blades) {
+                double psi = -((blade.initialAngle + angularVelocity * time) - blade.initialAngle);
+                double theta = -(blade.elements[0].twist);
+                double beta = -(blade.flappingAngle);              
+                
+                // Get transformation matrices
+                auto T1 = getT1(psi);
+                auto T2 = getT2(theta);
+                auto T3 = getT3(beta);
+                
+                for (const auto& element : blade.elements) {
+                    // Calculate position in body frame
+                    // Azimuth rotation
+                    double x = element.radius * cos(blade.initialAngle + angularVelocity * time);
+                    double y = element.radius * sin(blade.initialAngle + angularVelocity * time) * cos(blade.flappingAngle);
+                    double z = element.radius * sin(blade.flappingAngle);
+                   
+                    
+                    // Calculate velocities in blade frame
+                    std::array<double, 3> Ubody = {0.0, 0.0, 0.0};                      
+                    std::array<double, 3> Ublade = matrixMultiply(T1, matrixMultiply(T2, matrixMultiply(T3, Ubody)));
+                    
+                    // Calculate local velocity components [UR, UT, UP]
+                    double UR = 0.0;
+                    double UT = element.radius * angularVelocity;
+                    double UP = v_i;
+
+                    // std::cout << "twist: " << element.twist << std::endl;
+                    
+                    Ublade[0] = Ublade[0] + UT * cos(element.twist) + UP * sin(element.twist);  // x
+                    Ublade[1] = Ublade[1]; // y
+                    Ublade[2] = Ublade[2] + UT * sin(element.twist) - UP * cos(element.twist); //z                                                      // z 
+                    
+                    
+                    states.emplace_back(x, y, z, UR, UT, UP, Ublade[0], Ublade[1], Ublade[2]);
+                }
+            }
+            return states;
+        }
+
+        // Calculate circulation at each blade element
+        std::vector<std::tuple<double, double>> calculateCirculation() const {
+            std::vector<std::tuple<double, double>> circulationValues;
+            auto states = getBladeElementStates(0.0);  // Get states at current time
+            
+            for (const auto& [x, y, z, UR, UT, UP, Ublade_x, Ublade_y, Ublade_z] : states) {                
+                double phirad = atan(UP / UT);
+                double phideg = phirad * 180.0 / M_PI;
+
+                double alpharad = (blades[0].elements[0].twist - phirad);
+                double alphadeg = alpharad * 180.0 / M_PI;         
+
+                // std::cout << "alphadeg: " << alphadeg << std::endl;
+
+                double CL = blades[0].CL_alpha * alpharad;
+                double Umag = sqrt(Ublade_x*Ublade_x + Ublade_y*Ublade_y + Ublade_z*Ublade_z);
+                double boundCirc = 0.5 * CL * Umag * blades[0].elements[0].chord;
+
+                // std::cout << "Circulation: " << boundCirc << std::endl;
+                
+                circulationValues.emplace_back(std::sqrt(x*x + y*y + z*z), boundCirc);
+            }
+            return circulationValues;
+        }
+
+
     };
 } 
