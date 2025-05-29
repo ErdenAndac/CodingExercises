@@ -72,7 +72,9 @@
         "variant": "cpp",
         "codecvt": "cpp",
         "geometry": "cpp",
-        "filesystem": "cpp"
+        "filesystem": "cpp",
+        "bitset": "cpp",
+        "regex": "cpp"
     },
     "C_Cpp.errorSquiggles": "disabled"
 }

@@ -1,130 +1,159 @@
 #pragma once
 #include "rotor.hpp"
-#include <vector>
 #include <tuple>
 #include <cmath>
 #include <algorithm>
+#include <vector>
+#include <unordered_map>
+#include <Eigen/Core>
+#include <Eigen/Geometry>
 
-namespace BET {
+using vector = Eigen::Vector3f;
+
+namespace BET
+{
     // Gaussian kernel function for velocity calculation
-    double q_sigma_gaussian(double rho) {
+    float q_sigma_gaussian(float rho)
+    {
         return (1.0 / (4.0 * M_PI)) * (std::erf(rho / std::sqrt(2.0)) - std::sqrt(2.0 / M_PI) * rho * std::exp(-rho * rho / 2.0));
     }
 
-    struct Particle {
-        double x, y, z;           // Position
-        double vx, vy, vz;        // Velocity
-        double radius;            // Distance from motor hub (0,0,0)
-        double circulation;       // Bound circulation value from blade element
-        double initial_vx, initial_vy, initial_vz;        // Store initial z-velocity
+    struct Particle
+    {
+        vector position;
+        vector velocity;
+        vector alpha;
+        int timeStep; // Add time step tracking
 
-        Particle(double pX, double pY, double pZ, double pUx, double pUy, double pUz, double circulation_ = 0.0)
-            : x(pX), y(pY), z(pZ), vx(pUx), vy(pUy), vz(pUz), circulation(circulation_), initial_vx(pUx), initial_vy(pUy), initial_vz(pUz) {
-            // Calculate radius as distance from motor hub (0,0,0)
-            // radius = std::sqrt(x * x + y * y + z * z);
-             radius = 0.5;
+        Particle(const vector &pos, const vector &vel, const vector &alpha, int step)
+            : position(pos), velocity(vel), alpha(alpha), timeStep(step) {}
+    };
+
+    // Helper struct for grid cell coordinates
+    struct GridCell {
+        int x, y, z;
+        
+        bool operator==(const GridCell& other) const {
+            return x == other.x && y == other.y && z == other.z;
         }
     };
 
-    class ParticleSystem {
-    private:
+    // Hash function for GridCell
+    struct GridCellHash {
+        std::size_t operator()(const GridCell& cell) const {
+            return std::hash<int>()(cell.x) ^ 
+                   (std::hash<int>()(cell.y) << 1) ^ 
+                   (std::hash<int>()(cell.z) << 2);
+        }
+    };
+
+    struct ParticleSystem
+    {
         std::vector<Particle> particles;
+        int currentTimeStep = 0; // Track current time step
+        float cellSize = 2.0f; // Size of each grid cell
 
-        // Calculate induced velocities using Gaussian kernel
-        void calculateInducedVelocities() {
-            const size_t numParticles = particles.size();
+        // Convert position to grid cell coordinates
+        GridCell positionToGridCell(const vector& position) const {
+            return {
+                static_cast<int>(std::floor(position[0] / cellSize)),
+                static_cast<int>(std::floor(position[1] / cellSize)),
+                static_cast<int>(std::floor(position[2] / cellSize))
+            };
+        }
 
-            for (size_t i = 0; i < numParticles; i++) {
-                // Reset velocities for this particle
-                particles[i].vx = particles[i].initial_vx;
-                particles[i].vy = particles[i].initial_vy;
-                particles[i].vz = particles[i].initial_vz;  // Start with initial z-velocity
-
-                for (size_t j = 0; j < numParticles; j++) {
-                    if (i == j) continue;
-
-                    // std::cout << "Ciculation: " << particles[i].circulation << std::endl;
-
-                    // Calculate distance vector
-                    double dx = particles[i].x - particles[j].x;
-                    double dy = particles[i].y - particles[j].y;
-                    double dz = particles[i].z - particles[j].z;
-                    
-                    // Calculate distance scalar
-                    double distanceScalar = std::sqrt(dx*dx + dy*dy + dz*dz);
-                    
-                    if (distanceScalar < 1e-10) continue;  // Avoid self-interaction
-
-                    // Calculate induced velocity using Gaussian kernel
-                    double rho = distanceScalar / particles[j].radius;
-                    double q_sigma = q_sigma_gaussian(rho);
-                    double factor = q_sigma / (distanceScalar * distanceScalar * distanceScalar);
-
-                    // Cross product of distance vector with circulation
-                    // Using circulation as the strength of the vortex
-
-                    double cross_x = dy * particles[j].circulation;
-                    double cross_y = -dx * particles[j].circulation;
-                    double cross_z = 0.0;
-
-                    
-
-                    // Add induced velocity to existing velocity
-                    particles[i].vx += factor * cross_x;
-                    particles[i].vy += factor * cross_y;
-                    particles[i].vz += factor * cross_z;
+        // Get neighboring cells for a given cell
+        std::vector<GridCell> getNeighboringCells(const GridCell& cell) const {
+            std::vector<GridCell> neighbors;
+            for (int dx = -1; dx <= 1; ++dx) {
+                for (int dy = -1; dy <= 1; ++dy) {
+                    for (int dz = -1; dz <= 1; ++dz) {
+                        neighbors.push_back({cell.x + dx, cell.y + dy, cell.z + dz});
+                    }
                 }
             }
+            return neighbors;
         }
 
-    public:
-        ParticleSystem() = default;
+        void generateParticles(const Rotor &rotor, float time)
+        {
+            // Generate particles only at blade tips
+            for (const auto &blade : rotor.blades)
+            {
+                // Get the last element (tip) of each blade
+                const auto &tipElement = blade.elements.back();
 
-        // Generate particles at all blade element positions
-        void generateParticles(const Rotor& rotor, double time) {
-            auto states = rotor.getBladeElementStates(time);
-            auto circulationValues = rotor.calculateCirculation();
-            
-            // Generate particles at each blade element position
-            for (size_t i = 0; i < states.size(); ++i) {
-                const auto& [x, y, z, UR, UT, UP, Ublade_x, Ublade_y, Ublade_z] = states[i];
-                const auto& [radius, circulation] = circulationValues[i];
-                
-                // Create particle with position, initial z-velocity from blade element, and circulation
-                // Radius will be calculated in the Particle constructor
-                particles.emplace_back(x, y, z, 0.0, 0.0, 0.0, circulation);
-            }
-        }
-
-        // Update particle positions based on their velocities
-        void updateParticles(double dt) {
-            // Calculate induced velocities for all particles
-            calculateInducedVelocities();
-
-            for (auto& particle : particles) {
-                // Update position using calculated velocities
-                particle.x += particle.vx * dt;
-                particle.y += particle.vy * dt;
-                particle.z += particle.vz * dt;
-                
-                // Update radius after position update
-                // particle.radius = std::sqrt(particle.x * particle.x + particle.y * particle.y + particle.z * particle.z);
-
-                // std::cout << "particle.radius: " << particle.radius << std::endl;
-
-            }
-        }
-
-        // Get all particles for VTK output
-        std::vector<std::tuple<double, double, double, double, double, double>> getActiveParticles() const {
-            std::vector<std::tuple<double, double, double, double, double, double>> activeParticles;
-            for (const auto& particle : particles) {
-                activeParticles.emplace_back(
-                    particle.x, particle.y, particle.z,
-                    particle.vx, particle.vy, particle.vz
+                // Create particle at blade tip position with current time step
+                particles.emplace_back(
+                    tipElement.position,                    // Position from blade tip
+                    vector::Zero(), // Initial velocity
+                    tipElement.circulation,                 // Circulation from blade tip
+                    currentTimeStep                         // Current time step
                 );
             }
-            return activeParticles;
+            currentTimeStep++; // Increment time step after generating particles
+        }
+
+        auto calculateInducedVelocity()
+        {
+            
+
+            // Remove oldest particles if total count exceeds 1500
+            if (particles.size() > 1500) {
+                // Sort particles by timeStep (oldest first)
+                std::sort(particles.begin(), particles.end(),
+                    [](const Particle& a, const Particle& b) {
+                        return a.timeStep < b.timeStep;
+                    }
+                );
+                // Remove oldest particles to get back to 1500
+                particles.erase(particles.begin(), particles.begin() + (particles.size() - 800));
+            }
+
+            // Create spatial hash map
+            std::unordered_map<GridCell, std::vector<int>, GridCellHash> spatialGrid;
+            
+            // Assign particles to grid cells
+            for (int i = 0; i < particles.size(); ++i) {
+                GridCell cell = positionToGridCell(particles[i].position);
+                spatialGrid[cell].push_back(i);
+            }
+
+            // Calculate induced velocities using spatial partitioning
+            for (int particleIndex1 = 0; particleIndex1 < particles.size(); ++particleIndex1)
+            {
+                GridCell cell1 = positionToGridCell(particles[particleIndex1].position);
+                auto neighboringCells = getNeighboringCells(cell1);
+
+                // Check particles in neighboring cells
+                for (const auto& neighborCell : neighboringCells) {
+                    auto it = spatialGrid.find(neighborCell);
+                    if (it == spatialGrid.end()) continue;
+
+                    for (int particleIndex2 : it->second) {
+                        if (particleIndex1 == particleIndex2) continue;
+
+                        vector distanceVector = (particles[particleIndex1].position - particles[particleIndex2].position);
+                        float distanceScalar = distanceVector.norm();
+                        
+                        // Skip if particles are too close to avoid singularity
+                        if (distanceScalar < 1e-6 || distanceScalar > 15)
+                            continue;
+
+                        float radius = distanceScalar * 1.2;
+                        float rho = distanceScalar / radius;
+                        float q_sigma = q_sigma_gaussian(rho);
+                        float factor = q_sigma / (distanceScalar * distanceScalar * distanceScalar);
+                        vector inducedVelocity = factor * distanceVector.cross(particles[particleIndex2].alpha);
+
+                        particles[particleIndex1].velocity += inducedVelocity;
+                    }
+                }
+
+                // Update particle position using the calculated velocity
+                float timeStep = 0.01; // Using the same time step as in main.cpp
+                particles[particleIndex1].position += particles[particleIndex1].velocity * timeStep;
+            }
         }
     };
-} 
+};

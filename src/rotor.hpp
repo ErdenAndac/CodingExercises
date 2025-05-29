@@ -6,147 +6,139 @@
 #include <tuple>
 #include <array>
 #include <iostream>
+#include <Eigen/Core>
+#include <Eigen/Geometry>
+#include "SC1095PolarData.h"
 
-namespace BET {
+using namespace Eigen;
+using vector = Vector3f;
+
+namespace BET
+{
     struct Rotor
     {
-        std::vector<Blade> blades; // store multiple blades
         int numBlades;             // number of blades
-        double angularVelocity;    // [rad/s] angular (rotation) speed
-        double discArea;           // [ft^2] rotor disk area
-        double bladeArea;          // [ft^2] total blade area
-        double solidity;           // [-] solidity
-        double thrust;             // [lb] @ hover = MTOW
-        double CT_mt;              // [-] thrust coefficient (momentum theory)
-        double v_i;                // [ft/s] induced velocity (momentum theory)        
+        std::vector<Blade> blades; // store multiple blades
+        vector omega;              // [rad/s] angular (rotation) speed
+        vector v_i;                // [ft/s] induced velocity
+        vector Ubody;              // body velocity
+        float solidity;
 
         // Create a rotor with identical blades
-        Rotor(int nBlades, double tipRadius, double rootRadius, int numElements, double chord, double twistRate, double rpm, double MTOW)
+        Rotor(int nBlades, float tipRadius, float rootRadius, int numElements, float chord, float twistRate, float rpm)
             : numBlades(nBlades),
-              angularVelocity(rpm * 2.0 * M_PI / 60.0),
-              discArea(M_PI * tipRadius * tipRadius),
-              bladeArea(numBlades * (tipRadius - rootRadius) * chord),
-              solidity(bladeArea / discArea),
-              thrust(MTOW),
-              CT_mt(thrust / (rhoAir * discArea * angularVelocity * angularVelocity * tipRadius * tipRadius)),
-              v_i(sqrt(thrust / (2.0 * rhoAir * discArea)))              
+              omega(vector(0.0, 0.0, rpm * 2.0 * M_PI / 60.0)),
+              v_i(vector(0.0, 0.0, -25.4232)),
+              Ubody(vector(0.0, 0.0, 0.0)),
+              solidity((numBlades * chord) / (tipRadius * M_PI))
         {
-            double angleSpacing = 2.0 * M_PI / numBlades;
+            float angleSpacing = 2.0 * M_PI / numBlades;
             for (int i = 0; i < numBlades; ++i)
             {
-                double initialAngle = 90.0 * M_PI / 180.0 + i * angleSpacing;
+                float initialAngle = 0.0 * M_PI / 180.0 + i * angleSpacing;
                 blades.emplace_back(tipRadius, rootRadius, numElements, chord, twistRate, initialAngle);
             }
         }
 
-        // Transformation matrix for rotation around z-axis
-        std::array<std::array<double, 3>, 3> getT1(double psi) const {
-            return {{
-                {cos(psi), sin(psi), 0},
-                {-sin(psi), cos(psi), 0},
-                {0, 0, 1}
-            }};
-        }
-
-        // Transformation matrix for rotation around y-axis
-        std::array<std::array<double, 3>, 3> getT2(double theta) const {
-            return {{
-                {cos(theta), 0, -sin(theta)},
-                {0, 1, 0},
-                {sin(theta), 0, cos(theta)}
-            }};
-        }
-
-        // Transformation matrix for rotation around x-axis
-        std::array<std::array<double, 3>, 3> getT3(double beta) const {
-            return {{
-                {1, 0, 0},
-                {0, cos(beta), sin(beta)},
-                {0, -sin(beta), cos(beta)}
-            }};
-        }
-
-        // Matrix multiplication helper
-        std::array<double, 3> matrixMultiply(const std::array<std::array<double, 3>, 3>& mat, const std::array<double, 3>& vec) const {
-            std::array<double, 3> result;
-            for (int i = 0; i < 3; ++i) {
-                result[i] = 0;
-                for (int j = 0; j < 3; ++j) {
-                    result[i] += mat[i][j] * vec[j];
-                }
+        // Helper function to interpolate SC1095 polar data
+        float interpolateCL(float alphaDeg) const {
+            // Clamp alpha to the range of available data
+            alphaDeg = std::max(-15.0f, std::min(16.75f, alphaDeg));
+            
+            // Find the two closest data points
+            int lowerIndex = 0;
+            while (lowerIndex < SC1095PolarDataSize - 1 && SC1095PolarData[lowerIndex + 1][0] < alphaDeg) {
+                lowerIndex++;
             }
-            return result;
+            
+            // If we're at the last point, return its CL value
+            if (lowerIndex == SC1095PolarDataSize - 1) {
+                return SC1095PolarData[lowerIndex][1];
+            }
+            
+            // Linear interpolation
+            float alpha1 = SC1095PolarData[lowerIndex][0];
+            float alpha2 = SC1095PolarData[lowerIndex + 1][0];
+            float CL1 = SC1095PolarData[lowerIndex][1];
+            float CL2 = SC1095PolarData[lowerIndex + 1][1];
+            
+            return CL1 + (CL2 - CL1) * (alphaDeg - alpha1) / (alpha2 - alpha1);
         }
 
         // Get blade element positions and velocities for a given time step
-        std::vector<std::tuple<double, double, double, double, double, double, double, double, double>> getBladeElementStates(double time) const {
-            std::vector<std::tuple<double, double, double, double, double, double, double, double, double>> states;
-            
-            for (const auto& blade : blades) {
-                double psi = -((blade.initialAngle + angularVelocity * time) - blade.initialAngle);
-                double theta = -(blade.elements[0].twist);
-                double beta = -(blade.flappingAngle);              
-                
-                // Get transformation matrices
-                auto T1 = getT1(psi);
-                auto T2 = getT2(theta);
-                auto T3 = getT3(beta);
-                
-                for (const auto& element : blade.elements) {
-                    // Calculate position in body frame
-                    // Azimuth rotation
-                    double x = element.radius * cos(blade.initialAngle + angularVelocity * time);
-                    double y = element.radius * sin(blade.initialAngle + angularVelocity * time) * cos(blade.flappingAngle);
-                    double z = element.radius * sin(blade.flappingAngle);
-                   
-                    
-                    // Calculate velocities in blade frame
-                    std::array<double, 3> Ubody = {0.0, 0.0, 0.0};                      
-                    std::array<double, 3> Ublade = matrixMultiply(T1, matrixMultiply(T2, matrixMultiply(T3, Ubody)));
-                    
-                    // Calculate local velocity components [UR, UT, UP]
-                    double UR = 0.0;
-                    double UT = element.radius * angularVelocity;
-                    double UP = v_i;
+        auto getCirculation(float time) const
+        {
+            std::vector<std::tuple<float, float, float, float, float, float>> states;
 
-                    // std::cout << "twist: " << element.twist << std::endl;
+            for (int bladeIndex = 0; bladeIndex < blades.size(); ++bladeIndex)
+            {
+                auto &blade = blades[bladeIndex];
+                float psi = ((blade.initialAngle + omega[2] * time));
+                float beta = -(blade.flappingAngle);
+
+                for (int elementIndex = 0; elementIndex < blade.elements.size(); ++elementIndex)
+                {
+                    auto &element = blade.elements[elementIndex];
+
+                    float theta = -(blade.elements[elementIndex].twist);
+
+                    // First rotation matrix for blade position (CCW rotation around z-axis)
+                    Matrix3f Rz = AngleAxis<float>(psi, vector::UnitZ()).toRotationMatrix();
+
+                    // Second rotation matrix for blade pitch and flapping
+                    Matrix3f Ryx = (AngleAxis<float>(theta, vector::UnitY()) *
+                                    AngleAxis<float>(beta, vector::UnitX()))
+                                       .toRotationMatrix();
+
+                    Matrix3f Rzx = (AngleAxis<float>(psi, vector::UnitZ()) *
+                                    AngleAxis<float>(beta, vector::UnitX()))
+                                       .toRotationMatrix();
+
+                    // Combined transformation matrix
+                    Matrix3f R = Rz * Ryx;
+
+                    // Calculate element position in global frame
+                    // For initial angle 0°, blade is along x-axis
+                    vector elementPosition;
+
+                    elementPosition = Rzx * vector(element.radius, 0.0, 0.0);
+
+                    // Update element position
+                    blade.elements[elementIndex].updatePosition(elementPosition);
+
+                    // Velocities in blade frame
+                    vector bladeVelocity = Ryx * omega.cross(vector(0.0, element.radius, 0.0));
+                    vector inducedVelocity = Ryx * v_i;
+                    vector totalVelocity = -bladeVelocity + inducedVelocity;
+                    vector Ublade = totalVelocity + R * Ubody;
+
+                    blade.elements[elementIndex].updateUblade(Ublade);
+
+                    float alphaRad = atan2(Ublade[2], Ublade[0]);
+                    float alphaDeg = alphaRad * 180.0 / M_PI;
+
+                    // Use SC1095 polar data instead of linear approximation
+                    float CL = interpolateCL(alphaDeg);
                     
-                    Ublade[0] = Ublade[0] + UT * cos(element.twist) + UP * sin(element.twist);  // x
-                    Ublade[1] = Ublade[1]; // y
-                    Ublade[2] = Ublade[2] + UT * sin(element.twist) - UP * cos(element.twist); //z                                                      // z 
-                    
-                    
-                    states.emplace_back(x, y, z, UR, UT, UP, Ublade[0], Ublade[1], Ublade[2]);
+                    float circulationMagnitude = 0.5 * CL * Ublade.norm() * element.chord[0];
+                    vector circulation = -circulationMagnitude * elementPosition.normalized();                               
+
+                    /*
+                    std::cout << "Blade number: " << bladeIndex + 1 << std::endl;
+                    std::cout << "Element number: " << elementIndex + 1 << std::endl;
+                    std::cout << "Element position: " << elementPosition.transpose() << std::endl;
+                    std::cout << "Element radius: " << element.radius << std::endl;
+                    std::cout << "Ublade: " << Ublade.norm() << std::endl;
+                    std::cout << "Circulation magnitude: " << circulationMagnitude << std::endl;
+                    std::cout << "Circulation vector: " << circulation.transpose() << std::endl;
+                    */
+
+                    blade.elements[elementIndex].updateCirculation(circulation);
+
+                    states.emplace_back(elementPosition[0], elementPosition[1], elementPosition[2], Ublade[0], Ublade[1], Ublade[2]);
                 }
             }
             return states;
         }
-
-        // Calculate circulation at each blade element
-        std::vector<std::tuple<double, double>> calculateCirculation() const {
-            std::vector<std::tuple<double, double>> circulationValues;
-            auto states = getBladeElementStates(0.0);  // Get states at current time
-            
-            for (const auto& [x, y, z, UR, UT, UP, Ublade_x, Ublade_y, Ublade_z] : states) {                
-                double phirad = atan(UP / UT);
-                double phideg = phirad * 180.0 / M_PI;
-
-                double alpharad = (blades[0].elements[0].twist - phirad);
-                double alphadeg = alpharad * 180.0 / M_PI;         
-
-                // std::cout << "alphadeg: " << alphadeg << std::endl;
-
-                double CL = blades[0].CL_alpha * alpharad;
-                double Umag = sqrt(Ublade_x*Ublade_x + Ublade_y*Ublade_y + Ublade_z*Ublade_z);
-                double boundCirc = 0.5 * CL * Umag * blades[0].elements[0].chord;
-
-                // std::cout << "Circulation: " << boundCirc << std::endl;
-                
-                circulationValues.emplace_back(std::sqrt(x*x + y*y + z*z), boundCirc);
-            }
-            return circulationValues;
-        }
-
-
     };
-} 
+}

@@ -117,25 +117,17 @@ set(BET_SOURCES
     src/vtksettings.hpp
 )
 
-add_executable(blade_element_theory ${BET_SOURCES})
-target_compile_options(blade_element_theory PRIVATE ${COMPILER_FLAGS})
-target_link_libraries(blade_element_theory PRIVATE Eigen3::Eigen MatplotlibCpp::Matplotlib)
-target_include_directories(blade_element_theory PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+add_executable(BET-VPM ${BET_SOURCES})
+target_compile_options(BET-VPM PRIVATE ${COMPILER_FLAGS})
+target_link_libraries(BET-VPM PRIVATE Eigen3::Eigen MatplotlibCpp::Matplotlib)
+target_include_directories(BET-VPM PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 # Other executables
-add_executable(RK2 src/RK2.cpp)
-target_compile_options(RK2 PRIVATE ${COMPILER_FLAGS}) 
-target_link_libraries(RK2 PRIVATE Eigen3::Eigen MatplotlibCpp::Matplotlib)
 
-add_executable(deneme src/deneme.cpp)
-target_compile_options(deneme PRIVATE ${COMPILER_FLAGS}) 
-target_link_libraries(deneme PRIVATE Eigen3::Eigen MatplotlibCpp::Matplotlib)
+add_executable(denemeKernel src/deneme.cpp)
+target_compile_options(denemeKernel PRIVATE ${COMPILER_FLAGS}) 
+target_link_libraries(denemeKernel PRIVATE Eigen3::Eigen MatplotlibCpp::Matplotlib)
 
-add_executable(denemeBET src/denemeBET.cpp)
-target_compile_options(denemeBET PRIVATE ${COMPILER_FLAGS}) 
-target_link_libraries(denemeBET PRIVATE Eigen3::Eigen MatplotlibCpp::Matplotlib)
-
-add_executable(denemeBET2 src/denemeBET2.cpp)
-target_compile_options(denemeBET2 PRIVATE ${COMPILER_FLAGS}) 
-target_link_libraries(denemeBET2 PRIVATE Eigen3::Eigen MatplotlibCpp::Matplotlib)
-
+add_executable(DENEME src/denemeCode.cpp)
+target_compile_options(DENEME PRIVATE ${COMPILER_FLAGS}) 
+target_link_libraries(DENEME PRIVATE Eigen3::Eigen MatplotlibCpp::Matplotlib)
