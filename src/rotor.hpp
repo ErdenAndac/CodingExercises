@@ -28,7 +28,7 @@ namespace BET
         Rotor(int nBlades, float tipRadius, float rootRadius, int numElements, float chord, float twistRate, float rpm)
             : numBlades(nBlades),
               omega(vector(0.0, 0.0, rpm * 2.0 * M_PI / 60.0)),
-              v_i(vector(0.0, 0.0, -25.4232)),
+              v_i(vector(0.0, 0.0, 0.0)),
               Ubody(vector(0.0, 0.0, 0.0)),
               solidity((numBlades * chord) / (tipRadius * M_PI))
         {

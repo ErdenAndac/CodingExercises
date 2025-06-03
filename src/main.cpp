@@ -33,13 +33,13 @@ int main()
     // Create VTK writer
     BET::VTKWriter vtkWriter;
     
-    // Create Particle System
-    BET::ParticleSystem particleSystem;
-    
     // Simulate and save VTK files at different time steps
     float timeStep = 0.01; // [s] time step
-
-    for (int timeIndex = 0; timeIndex <= 300; ++timeIndex)
+    
+    // Create Particle System with the specified time step
+    BET::ParticleSystem particleSystem(timeStep);
+    
+    for (int timeIndex = 0; timeIndex <= 100; ++timeIndex)
     {
         float currentTime = timeIndex * timeStep;      
     
