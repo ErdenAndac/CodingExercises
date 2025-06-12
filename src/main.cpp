@@ -5,7 +5,6 @@
 
 int main()
 {
-
     std::cout << std::fixed << std::setprecision(5);
     // Define rotor parameters
     /*
@@ -17,45 +16,44 @@ int main()
     float twistRate = 0.0;       // [deg/ft] twist rate
     float rpm = 450.0;            // [rpm] angular (rotational) speed
     */
-    
+
     // Sikorsky S-76
     int numBlades = 4;
-    float tipRadius = 6.706;       // [ft] tip radius
-    float rootRadius = 0.1667 * tipRadius;      // [ft] cut-out radius
-    int numElements = 10;         // number of elements per blade
-    float chord = 0.3937;            // [ft] chord length
-    float twistRate = -1.4912;       // [deg/ft] twist rate
-    float rpm = 293.0;            // [rpm] angular (rotational) speed
-    
-    // Create Rotor (moved outside the time loop)
+    float tipRadius = 6.706;               // [m] tip radius
+    float rootRadius = 0.1667 * tipRadius; // [m] cut-out radius
+    int numElements = 10;                  // number of elements per blade
+    float chord = 0.3937;                  // [m] chord length
+    float twistRate = -1.4912;             // [deg/ft] twist rate
+    float rpm = 293.0;                     // [rpm] angular (rotational) speed
+
+    float omega = rpm * 2.0 * M_PI / 60.0;  // [rad/s] angular velocity
+    float azimuthStep = 3.0 * M_PI / 180.0; // [rad]
+    float timeStep = azimuthStep / omega;   // [s]
+
     BET::Rotor myRotor(numBlades, tipRadius, rootRadius, numElements, chord, twistRate, rpm);
-    
-    // Create VTK writer
+
     BET::VTKWriter vtkWriter;
-    
-    // Simulate and save VTK files at different time steps
-    float timeStep = 0.01; // [s] time step
-    
-    // Create Particle System with the specified time step
-    BET::ParticleSystem particleSystem(timeStep);
-    
-    for (int timeIndex = 0; timeIndex <= 100; ++timeIndex)
+
+    BET::ParticleSystem particleSystem;
+
+    for (int index = 0; index <= 120 * 3; ++index)
     {
-        float currentTime = timeIndex * timeStep;      
-    
+        float currentTime = index * timeStep;     // [s]
+        float currentAngle = index * azimuthStep; // [rad]
+
         myRotor.getCirculation(currentTime);
-
-        particleSystem.generateParticles(myRotor, currentTime);
-
-        particleSystem.calculateInducedVelocity();
-
-        // Save time step data to VTK file
+        
+        particleSystem.update(myRotor, timeStep);
+       
         vtkWriter.saveTimeStep(myRotor, currentTime, particleSystem);
-        if ((timeIndex) % 100 == 0)
+
+        
+        if ((index) % 30 == 0)
         {
-            std::cout << "Time: " << currentTime << std::endl;
-            
+            std::cout << "Azimuth Angle: " << currentAngle << " radians" << std::endl;
+            std::cout << "Time: " << currentTime << " seconds" << std::endl;
         }
+        
     }
 
     return 0;

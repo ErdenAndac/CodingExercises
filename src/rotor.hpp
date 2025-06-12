@@ -28,7 +28,7 @@ namespace BET
         Rotor(int nBlades, float tipRadius, float rootRadius, int numElements, float chord, float twistRate, float rpm)
             : numBlades(nBlades),
               omega(vector(0.0, 0.0, rpm * 2.0 * M_PI / 60.0)),
-              v_i(vector(0.0, 0.0, 0.0)),
+              v_i(vector(0.0, 0.0, -12.141)), // [m/s] 
               Ubody(vector(0.0, 0.0, 0.0)),
               solidity((numBlades * chord) / (tipRadius * M_PI))
         {
@@ -121,18 +121,15 @@ namespace BET
                     float CL = interpolateCL(alphaDeg);
                     
                     float circulationMagnitude = 0.5 * CL * Ublade.norm() * element.chord[0];
-                    vector circulation = -circulationMagnitude * elementPosition.normalized();                               
+                    vector circulation = circulationMagnitude * elementPosition.normalized();                               
 
                     /*
                     std::cout << "Blade number: " << bladeIndex + 1 << std::endl;
-                    std::cout << "Element number: " << elementIndex + 1 << std::endl;
-                    std::cout << "Element position: " << elementPosition.transpose() << std::endl;
-                    std::cout << "Element radius: " << element.radius << std::endl;
-                    std::cout << "Ublade: " << Ublade.norm() << std::endl;
+                    std::cout << "Element number: " << elementIndex + 1 << std::endl;                    
                     std::cout << "Circulation magnitude: " << circulationMagnitude << std::endl;
-                    std::cout << "Circulation vector: " << circulation.transpose() << std::endl;
+                    std::cout << "Circulation vector: " << circulation.transpose() << std::endl;                    
                     */
-
+                   
                     blade.elements[elementIndex].updateCirculation(circulation);
 
                     states.emplace_back(elementPosition[0], elementPosition[1], elementPosition[2], Ublade[0], Ublade[1], Ublade[2]);
